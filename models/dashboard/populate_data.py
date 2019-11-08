@@ -332,6 +332,25 @@ class DashboardModel:
 
         return q
 
+
+    def query_company_by_minute_range(self, company_id, init, end):
+        q = self._table.query(
+            KeyConditionExpression="Pk = :pk AND Sk BETWEEN :init AND :end",
+            ExpressionAttributeValues={
+                ":pk": "{}".format(company_id),
+                ":init": "m#{}".format(init),
+                ":end": "m#{}".format(end)
+            },
+            ConsistentRead=False,
+            ScanIndexForward=True,
+            ReturnConsumedCapacity="TOTAL"
+        )
+
+        print(q["ConsumedCapacity"])
+
+        return q
+
+
     def query_company_by_day(self, company_id):
         q = self._table.query(
             KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
@@ -518,20 +537,21 @@ if __name__ == "__main__":
     #     future = executor.submit(load_days, (8))
 
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        future = executor.submit(load_hour_min, (1))
-        future = executor.submit(load_hour_min, (2))
-        future = executor.submit(load_hour_min, (3))
-        future = executor.submit(load_hour_min, (4))
-        future = executor.submit(load_hour_min, (5))
-        future = executor.submit(load_hour_min, (6))
-        future = executor.submit(load_hour_min, (7))
-        future = executor.submit(load_hour_min, (8))
+    # with ThreadPoolExecutor(max_workers=8) as executor:
+    #     future = executor.submit(load_hour_min, (1))
+    #     future = executor.submit(load_hour_min, (2))
+    #     future = executor.submit(load_hour_min, (3))
+    #     future = executor.submit(load_hour_min, (4))
+    #     future = executor.submit(load_hour_min, (5))
+    #     future = executor.submit(load_hour_min, (6))
+    #     future = executor.submit(load_hour_min, (7))
+    #     future = executor.submit(load_hour_min, (8))
 
 
     for cpy in COMPANY:
         start = time.time()
-        q = dm.query_company_by_minute(cpy)
+        #q = dm.query_company_by_minute(cpy)
+        q = dm.query_company_by_minute_range(cpy, "2015-11-01", "2019-11-08")
         
         tkt_medio = 0
         fat_liquido = 0
