@@ -45,283 +45,12 @@ class DashboardModel:
         self._table = self._ddb_res.Table(table_name)
 
 
-    def deposit_money(self, acc_id, amount):
-        print(">deposit_money ACC: '{}' AMOUNT: '{}'".format(acc_id, amount))
-
-        if int(amount) <= 0:
-            print("Invalid amount")
-            return
-
-        now = datetime.datetime.now().isoformat()
-        tx_id = str(uuid.uuid4())
-        type = "MoneyDeposit"
-
-        r = self._ddb_cli.transact_write_items(
-            TransactItems=[
-                {
-                    'Put': {
-                        'TableName': TABLE_NAME,
-                        'Item': {
-                            "id": { "S": acc_id },
-                            "sort": { "S" : "TX_{}".format(now)},
-                            "Amount": { "N": str(amount) },
-                            "SrcAccountId": { "S": "External" },
-                            "DstAccountId": { "S": acc_id },
-                            "CreditDebitIndicator": { "S": "Credit"},
-                            "TransactionId":  { "S": tx_id },
-                            "BookingDateTime": { "S": now },
-                            "Type": { "S": type }
-                        },
-                        'ReturnValuesOnConditionCheckFailure': 'NONE'
-                    }
-                },
-                {
-                    'Update': {
-                        'TableName': TABLE_NAME,
-                        'Key': { 'id': { "S": acc_id }, 'sort': { "S": "BALANCE"} },
-                        #'ConditionExpression': '#amount <> :tx_amount',
-                        'UpdateExpression': 'SET #amount = #amount + :tx_amount',
-                        'ExpressionAttributeNames': {
-                            '#amount': 'Amount'
-                        },
-                        'ExpressionAttributeValues': {
-                            ':tx_amount': { "N": str(amount) }
-                        },
-                        'ReturnValuesOnConditionCheckFailure': 'NONE'
-                    }
-                }
-            ],
-            ReturnConsumedCapacity="TOTAL",
-            ReturnItemCollectionMetrics="SIZE"
-        )
-
-        print("####\n{}".format(json.dumps(r, indent=2, cls=DecimalEncoder)))
-        return
-
-    def withdraw_money(self, acc_id, amount):
-        print(">withdraw_money ACC: {} AMOUNT: {}".format(acc_id, amount))
-
-        if int(amount) <= 0:
-            print("Invalid amount")
-            return
-
-        now = datetime.datetime.now().isoformat()
-        tx_id = str(uuid.uuid4())
-        type = "MoneyWithdraw"
-
-        r = self._ddb_cli.transact_write_items(
-            TransactItems=[
-                {
-                    'Put': {
-                        'TableName': TABLE_NAME,
-                        'Item': {
-                            "id": { "S": acc_id },
-                            "sort": { "S" : "TX_{}".format(now)},
-                            "Amount": { "N": str(amount) },
-                            "SrcAccountId": { "S": acc_id },
-                            "DstAccountId": { "S": "External" },
-                            "CreditDebitIndicator": { "S": "Debit"},
-                            "TransactionId":  { "S": tx_id },
-                            "BookingDateTime": { "S": now },
-                            "Type": { "S": type }
-                        },
-                        'ReturnValuesOnConditionCheckFailure': 'NONE'
-                    }
-                },
-                {
-                    'Update': {
-                        'TableName': TABLE_NAME,
-                        'Key': { 'id': { "S": acc_id }, 'sort': { "S": "BALANCE"} },
-                        'ConditionExpression': '#amount >= :tx_amount',
-                        'UpdateExpression': 'SET #amount = #amount - :tx_amount',
-                        'ExpressionAttributeNames': {
-                            '#amount': 'Amount'
-                        },
-                        'ExpressionAttributeValues': {
-                            ':tx_amount': { "N": str(amount) }
-                        },
-                        'ReturnValuesOnConditionCheckFailure': 'NONE'
-                    }
-                }
-            ],
-            ReturnConsumedCapacity="TOTAL",
-            ReturnItemCollectionMetrics="SIZE"
-        )
-
-        print("####\n{}".format(json.dumps(r, indent=2, cls=DecimalEncoder)))
-        return
-
-    '''
-    https://openbankinguk.github.io/read-write-api-site3/v3.1.3/resources-and-data-models/aisp/Transactions.html#get-transactions
-    Number of decimal cases. I don't know how dynamodb handles that.
-    '''
-    def transfer_money(self, src_acc_id, dst_acc_id, tx_amount, info="No info"):
-        print(">transfer_money FROM: {} TO: {} AMOUNT: {}".format(src_acc_id, dst_acc_id, tx_amount))
-
-        now = datetime.datetime.now().isoformat()
-        tx_id = str(uuid.uuid4())
-        type = "MoneyTransfer"
-
-        tx_resp = {
-            "Amount": tx_amount,
-            "SrcAccountId": src_acc_id,
-            "DstAccountId": dst_acc_id,
-            "TransactionId": str(tx_id),
-            "BookingDateTime": now,
-            "Type": type,
-            "Result": False
-        }
-
-        if int(tx_amount) <= 0:
-            print("ERROR: Invalid amount")
-            tx_resp["ErrorMsg"] = "ERROR: Invalid amount"
-            return tx_resp
-
-        if src_acc_id == dst_acc_id:
-            print("ERROR: Same source and destination accounts not allowed")
-            tx_resp["ErrorMsg"] = "ERROR: Same source and destination accounts not allowed"
-            return tx_resp
-
-
-        print("SOURCE ACC: {}".format(src_acc_id))
-
-        try:
-            r = self._ddb_cli.transact_write_items(
-                TransactItems=[
-                    {
-                        'Put': {
-                            'TableName': TABLE_NAME,
-                            'Item': {
-                                "id": { "S": src_acc_id },
-                                "sort": { "S" : "TX_{}".format(now)},
-                                "Amount": { "N": str(tx_amount) },
-                                "SrcAccountId": { "S": src_acc_id },
-                                "DstAccountId": { "S": dst_acc_id },
-                                "CreditDebitIndicator": { "S": "Debit"},
-                                "TransactionId":  { "S": tx_id },
-                                "BookingDateTime": { "S": now },
-                                "Type": { "S": type }
-                            },
-                            'ReturnValuesOnConditionCheckFailure': 'NONE'
-                        }
-                    },
-                    {
-                        'Put': {
-                            'TableName': TABLE_NAME,
-                            'Item': {
-                                "id": { "S": dst_acc_id },
-                                "sort": { "S" : "TX_{}".format(now)},
-                                "Amount": { "N": str(tx_amount) },
-                                "SrcAccountId": { "S": src_acc_id },
-                                "DstAccountId": { "S": dst_acc_id },
-                                "CreditDebitIndicator": { "S": "Credit"},
-                                "TransactionId":  { "S": tx_id },
-                                "BookingDateTime": { "S": now },
-                                "Type": { "S": type }
-                            },
-                            'ReturnValuesOnConditionCheckFailure': 'NONE'
-                        }
-                    },
-                    {
-                        'Update': {
-                            'TableName': TABLE_NAME,
-                            'Key': { 'id': { "S": src_acc_id }, 'sort': { "S": "BALANCE"} },
-                            'ConditionExpression': '#amount >= :tx_amount',
-                            'UpdateExpression': 'SET #amount = #amount - :tx_amount',
-                            'ExpressionAttributeNames': {
-                                '#amount': 'Amount'
-                            },
-                            'ExpressionAttributeValues': {
-                                ':tx_amount': { "N": str(tx_amount) }
-                            },
-                            'ReturnValuesOnConditionCheckFailure': 'NONE'
-                        }
-                    },
-                    {
-                        'Update': {
-                            'TableName': TABLE_NAME,
-                            'Key': { 'id': { "S": dst_acc_id }, 'sort': { "S": "BALANCE"} },
-                            #'ConditionExpression': '#amount <= :tx_amount',
-                            'UpdateExpression': 'SET #amount = #amount + :tx_amount',
-                            'ExpressionAttributeNames': {
-                                '#amount': 'Amount'
-                            },
-                            'ExpressionAttributeValues': {
-                                ':tx_amount': { "N": str(tx_amount) }
-                            },
-                            'ReturnValuesOnConditionCheckFailure': 'NONE'
-                        }
-                    }
-                ],
-                ReturnConsumedCapacity="TOTAL",
-                ReturnItemCollectionMetrics="SIZE"
-            )
-
-            if r["ResponseMetadata"]["HTTPStatusCode"] == 200:
-                tx_resp["Result"] = True
-            else:
-                print("####\n{}".format(json.dumps(r, indent=2, cls=DecimalEncoder)))
-                tx_resp["ErrorMsg"] = r
-
-        except Exception as e:
-            print(e)
-            tx_resp["ErrorMsg"] = str(e)
-
-        return tx_resp
-
-
-    def query_statement(self, acc_id):
-        print(">query_statement")
-
-        q = self._table.query(
-            KeyConditionExpression="id = :pk AND begins_with(sort, :metadata)",
-            ExpressionAttributeValues={
-                ":pk": "{}".format(acc_id),
-                ":metadata": "TX_"
-            },
-            ScanIndexForward=True,
-            ReturnConsumedCapacity="TOTAL"
-        )
-
-        print(q["ConsumedCapacity"])
-
-        return q
-
-    def get_balance(self, acc_id):
-        print(">get_balance")
-
-        q = self._table.query(
-            KeyConditionExpression="id = :pk AND begins_with(sort, :metadata)",
-            ExpressionAttributeValues={
-                ":pk": "{}".format(acc_id),
-                ":metadata": "BALANCE"
-            },
-            ScanIndexForward=True
-        )
-
-        response = {
-            "AccountId": acc_id,
-            "Balance": 0,
-            "CreditDebitIndicator": "Credit",
-            "Result": False
-        }
-
-        if "Items" in q:
-            if "Amount" in q["Items"][0]:
-                response["Balance"] = q["Items"][0]["Amount"]
-                response["Result"] = True
-        else:
-            print("No account data found!")
-            response["ErrorMsg"] = "No account data found!"
-
-        return response
-
     def query_company_by_minute(self, company_id):
         q = self._table.query(
             KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
             ExpressionAttributeValues={
                 ":pk": "{}".format(company_id),
-                ":sk": "W10MIN#"
+                ":sk": "m#"
             },
             ConsistentRead=False,
             ScanIndexForward=True,
@@ -338,8 +67,8 @@ class DashboardModel:
             KeyConditionExpression="Pk = :pk AND Sk BETWEEN :init AND :end",
             ExpressionAttributeValues={
                 ":pk": "{}".format(company_id),
-                ":init": "W10MIN#{}".format(init),
-                ":end": "W10MIN#{}".format(end)
+                ":init": "SLOT#{}".format(init),
+                ":end": "SLOT#{}".format(end)
             },
             ConsistentRead=False,
             ScanIndexForward=True,
@@ -356,7 +85,7 @@ class DashboardModel:
             KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
             ExpressionAttributeValues={
                 ":pk": "{}".format(company_id),
-                ":sk": "DAY#"
+                ":sk": "D#"
             },
             ConsistentRead=False,
             ScanIndexForward=True,
@@ -372,7 +101,7 @@ class DashboardModel:
             KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
             ExpressionAttributeValues={
                 ":pk": "{}".format(company_id),
-                ":sk": "MONTH#"
+                ":sk": "M#"
             },
             ConsistentRead=False,
             ScanIndexForward=True,
@@ -388,7 +117,7 @@ class DashboardModel:
 
         self._table.put_item(Item={
             "Pk": data["company_id"],
-            "Sk": "MONTH#{}".format(data["date"]),
+            "Sk": "M#{}".format(data["date"]),
             "FatLiq": data["fat_liquido"],
             "QtdVendas": data["qtd_vendas"],
             "TicketMedio": data["tkt_medio"],
@@ -405,7 +134,7 @@ class DashboardModel:
 
         self._table.put_item(Item={
             "Pk": data["company_id"],
-            "Sk": "W10MIN#{}".format(data["date"]),
+            "Sk": "m#{}".format(data["date"]),
             "FatLiq": data["fat_liquido"],
             "QtdVendas": data["qtd_vendas"],
             "TicketMedio": data["tkt_medio"],
@@ -421,7 +150,7 @@ class DashboardModel:
 
         self._table.put_item(Item={
             "Pk": data["company_id"],
-            "Sk": "DAY#{}".format(data["date"]),
+            "Sk": "D#{}".format(data["date"]),
             "FatLiq": data["fat_liquido"],
             "QtdVendas": data["qtd_vendas"],
             "TicketMedio": data["tkt_medio"],
@@ -497,7 +226,7 @@ def load_days(n):
 
     dm = DashboardModel(table_name=TABLE_NAME)
     
-    for i in range(1, 500):
+    for i in range(1, 100):
         data = generate_random_data()
         dm.insert_new_day_record(data)
         #companies.add(data["company_id"])
@@ -511,17 +240,13 @@ def load_hour_min(n):
 
     dm = DashboardModel(table_name=TABLE_NAME)
     
-    for i in range(1, 500):
+    for i in range(1, 100):
         data = generate_random_data(period="mm")
         dm.insert_new_minute_record(data)
         #companies.add(data["company_id"])
         
         if i % 50 == 0:
             logging.info("THREAD {} I {}".format(n, i))
-
-
-def load_hour_min_in_parallel(n):
-    return
 
 if __name__ == "__main__":
     dm = DashboardModel(table_name=TABLE_NAME)
@@ -540,6 +265,7 @@ if __name__ == "__main__":
     #     future = executor.submit(load_days, (7))
     #     future = executor.submit(load_days, (8))
 
+
     # with ThreadPoolExecutor(max_workers=8) as executor:
     #     future = executor.submit(load_hour_min, (1))
     #     future = executor.submit(load_hour_min, (2))
@@ -553,13 +279,8 @@ if __name__ == "__main__":
 
     for cpy in COMPANY:
         start = time.time()
-        
         #q = dm.query_company_by_minute(cpy)
-        #q = dm.query_company_by_minute_range(cpy, "2015-11-08", "0", "24")
-        q = dm.query_company_by_day_range(cpy, "2015-11-01", "2019-11-07")
-
-        end = time.time()
-        print(end - start)
+        q = dm.query_company_by_minute_range(cpy, "2015-11-01", "2019-11-08")
         
         tkt_medio = 0
         fat_liquido = 0
