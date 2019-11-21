@@ -13,7 +13,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
 
-    author="author",
+    author="David Reis",
 
     package_dir={"": "cdk"},
     packages=setuptools.find_packages(where="cdk"),
@@ -27,6 +27,7 @@ setuptools.setup(
         "aws-cdk.aws-events",
         "aws-cdk.aws-events-targets",
         "aws-cdk.aws-lambda",
+        "aws-cdk.aws-lambda-event-sources",
         "aws-cdk.aws-s3",
         "aws-cdk.aws-s3-assets",
         "aws-cdk.aws-ec2",
@@ -38,6 +39,9 @@ setuptools.setup(
         "aws-cdk.aws-cloudwatch",
         "aws-cdk.aws-cloud9",
         "aws-cdk.aws-sns",
+        "aws-cdk.aws-kinesis",
+        "aws-cdk.aws-kinesisanalytics",
+        "aws-cdk.aws-kinesisfirehose",
         "cdk.watchful",
         "aws-cdk.aws-sqs",
         "aws-cdk.aws-ssm",
