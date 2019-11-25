@@ -7,6 +7,7 @@ from aws_cdk import (
 )
 from aws_cdk.aws_ec2 import SubnetType, Vpc
 from aws_cdk.core import App, Construct, Duration
+import json
 #from aws_cdk.aws_kinesisfirehose import IntervalInSeconds
 
 class DynamoDBModelsStack(core.Stack):
@@ -61,11 +62,106 @@ class DynamoDBModelsStack(core.Stack):
 
         kda_service_role.add_to_policy(kda_policy_stmt)
 
-        kda_app = aws_kinesisanalytics.CfnApplicationV2(self, "kda_agg",
-            runtime_environment="SQL-1_0", 
-            service_execution_role=kda_service_role.role_arn, 
-            application_configuration=None,
-            application_description="Sample aggregation application", 
+        #kda_app = aws_kinesisanalytics.CfnApplicationV2(self, "kda_agg",
+        #    runtime_environment="SQL-1_0", 
+        #    service_execution_role=kda_service_role.role_arn, 
+        #    application_configuration=None,
+        #    application_description="Sample aggregation application", 
+        #    application_name="DashboardMetricsAggregator"
+        #)
+
+        # kda_record_format = aws_kinesisanalytics.RecordFormatProperty(
+        #     record_format_type="CSV"
+        # )
+
+        # kda_schema = aws_kinesisanalytics.InputSchemaProperty(
+        #     record_columns= [ ],
+        #     #"RecordEncoding" : String,
+        #     record_format=kda_record_format
+        # )
+
+            #     InputSchema:
+            # RecordColumns:
+            #  - Name: "example"
+            #    SqlType: "VARCHAR(16)"
+            #    Mapping: "$.example"
+            # RecordFormat:
+            #   RecordFormatType: "JSON"
+            #   MappingParameters:
+            #     JSONMappingParameters:
+            #       RecordRowPath: "$"
+
+        # kda_inputs = aws_kinesisanalytics.InputProperty(
+        #     name_prefix="bla",
+        #     kinesis_streams_input=kds_input_stream,
+        #     input_schema=kda_schema,
+        # )
+
+        input = {
+            "NamePrefix": "exampleNamePrefix",
+            "InputSchema": {
+             "RecordColumns": {
+                "Name": "example",
+                "SqlType": "VARCHAR(16)",
+                "Mapping": "$.example"
+             },
+            "RecordFormat": {
+              "RecordFormatType": "JSON",
+              "MappingParameters": {
+                "JSONMappingParameters": {
+                  "RecordRowPath": "$"
+                }
+              }
+            }
+            }
+        }
+
+        #You chose CSV as the record format, but you haven't specified the Delimited MappingParameters. Please provide the Column and Row Delimiters via Delimited Mapping Parameters (
+
+        col1 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="example",
+            sql_type="VARCHAR(4)",
+            mapping="$.example"
+        )
+
+        col2 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="ts",
+            sql_type="VARCHAR(32)",
+            mapping="$.ts"
+        )
+
+        schema = aws_kinesisanalytics.CfnApplication.InputSchemaProperty(
+            record_columns=[col2, col1],
+            record_encoding="UTF-8",
+            record_format=aws_kinesisanalytics.CfnApplication.RecordFormatProperty(
+                record_format_type="JSON",
+                mapping_parameters=aws_kinesisanalytics.CfnApplication.MappingParametersProperty(
+                    json_mapping_parameters=aws_kinesisanalytics.CfnApplication.JSONMappingParametersProperty(
+                        record_row_path="$"
+                    )
+                )
+            )
+        )
+
+        kda_is = aws_kinesisanalytics.CfnApplication.KinesisStreamsInputProperty(
+            resource_arn=kds_input_stream.stream_arn,
+            role_arn=kda_service_role.role_arn
+        )
+
+        ip = aws_kinesisanalytics.CfnApplication.InputProperty(
+            name_prefix="SOURCE_SQL_STREAM",
+            input_schema=schema,
+            kinesis_streams_input=kda_is
+        )
+
+        #   KinesisStreamsInput:
+        #     ResourceARN: !GetAtt InputKinesisStream.Arn
+        #     RoleARN: !GetAtt KinesisAnalyticsRole.Arn
+
+        kda_app = aws_kinesisanalytics.CfnApplication(self, "kda_agg",
+            inputs=[ip], #kda_inputs,
+            application_code="Example Application Code", 
+            application_description="Aggregating data", 
             application_name="DashboardMetricsAggregator"
         )
 
@@ -79,8 +175,7 @@ class DynamoDBModelsStack(core.Stack):
             code=aws_lambda.Code.asset("../models/dashboard/lambdas/aggregate_data_lambda"),
             timeout=Duration.minutes(5))
 
-        lambda_agg_function.add_environment("BUCKET_NAME", "dreis-sandbox-temp")
-        lambda_agg_function.add_environment("DDB_TABLE_DEVICE_CATALOG", table.table_name)
+        lambda_agg_function.add_environment("DDB_TABLE_DASHBOARD", table.table_name)
 
         lambda_agg_function.add_to_role_policy(aws_iam.PolicyStatement(
             effect=aws_iam.Effect.ALLOW,
