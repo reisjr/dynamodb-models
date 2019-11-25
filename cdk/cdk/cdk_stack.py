@@ -8,7 +8,7 @@ from aws_cdk import (
 from aws_cdk.aws_ec2 import SubnetType, Vpc
 from aws_cdk.core import App, Construct, Duration
 import json
-#from aws_cdk.aws_kinesisfirehose import IntervalInSeconds
+
 
 class DynamoDBModelsStack(core.Stack):
 
@@ -119,19 +119,49 @@ class DynamoDBModelsStack(core.Stack):
         #You chose CSV as the record format, but you haven't specified the Delimited MappingParameters. Please provide the Column and Row Delimiters via Delimited Mapping Parameters (
 
         col1 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="example",
-            sql_type="VARCHAR(4)",
-            mapping="$.example"
+            name="state",
+            sql_type="VARCHAR(2)",
+            mapping="$.state"
         )
 
         col2 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="ts",
+            name="event-time",
             sql_type="VARCHAR(32)",
-            mapping="$.ts"
+            mapping="$.event-time"
+        )
+        
+        col3 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="region",
+            sql_type="VARCHAR(12)",
+            mapping="$.region"
+        )
+
+        col4 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="store-id",
+            sql_type="INTEGER",
+            mapping="$.store-id"
+        )
+
+        col5 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="kpi-1",
+            sql_type="INTEGER",
+            mapping="$.kpi-1"
+        )
+        
+        col6 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="kpi-2",
+            sql_type="INTEGER",
+            mapping="$.kpi-2"
+        )
+
+        col7 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="kpi-3",
+            sql_type="INTEGER",
+            mapping="$.kpi-3"
         )
 
         schema = aws_kinesisanalytics.CfnApplication.InputSchemaProperty(
-            record_columns=[col2, col1],
+            record_columns=[col2, col1, col3, col4, col5, col6, col7],
             record_encoding="UTF-8",
             record_format=aws_kinesisanalytics.CfnApplication.RecordFormatProperty(
                 record_format_type="JSON",
@@ -154,13 +184,25 @@ class DynamoDBModelsStack(core.Stack):
             kinesis_streams_input=kda_is
         )
 
-        #   KinesisStreamsInput:
-        #     ResourceARN: !GetAtt InputKinesisStream.Arn
-        #     RoleARN: !GetAtt KinesisAnalyticsRole.Arn
+        application_code = "CREATE OR REPLACE STREAM \"DESTINATION_SQL_STREAM_BY_STORE\" (\"region\" VARCHAR(10), \"state\" VARCHAR(2), \"store-id\" INTEGER, kpi_1_sum INTEGER,  kpi_2_sum INTEGER, ingest_time TIMESTAMP);" + \
+            "CREATE OR REPLACE STREAM \"DESTINATION_SQL_STREAM_BY_STATE\" (\"region\" VARCHAR(10), \"state\" VARCHAR(2), kpi_1_sum INTEGER,  kpi_2_sum INTEGER, ingest_time TIMESTAMP);" + \
+            "CREATE OR REPLACE STREAM \"DESTINATION_SQL_STREAM_BY_REGION\" (\"region\" VARCHAR(10), kpi_1_sum INTEGER,  kpi_2_sum INTEGER, ingest_time TIMESTAMP);" + \
+            "CREATE OR REPLACE PUMP \"STREAM_PUMP\" AS INSERT INTO \"DESTINATION_SQL_STREAM_BY_STORE\"" + \
+            "SELECT STREAM \"region\", \"state\", \"store-id\", SUM(\"kpi-1\") AS kpi_1_sum, SUM(\"kpi-2\") AS kpi_2_sum, FLOOR(\"SOURCE_SQL_STREAM_001\".APPROXIMATE_ARRIVAL_TIME TO MINUTE) as ingest_time" + \
+            "FROM \"SOURCE_SQL_STREAM_001\"" + \
+            "GROUP BY \"region\", \"state\", \"store-id\", FLOOR(\"SOURCE_SQL_STREAM_001\".APPROXIMATE_ARRIVAL_TIME TO MINUTE), FLOOR((\"SOURCE_SQL_STREAM_001\".ROWTIME - TIMESTAMP '1970-01-01 00:00:00') SECOND / 10 TO SECOND);" + \
+            "CREATE OR REPLACE PUMP \"STREAM_PUMP\" AS INSERT INTO \"DESTINATION_SQL_STREAM_BY_STATE\"" + \
+            "SELECT STREAM \"region\", \"state\", SUM(\"kpi-1\") AS kpi_1_sum, SUM(\"kpi-2\") AS kpi_2_sum, FLOOR(\"SOURCE_SQL_STREAM_001\".APPROXIMATE_ARRIVAL_TIME TO MINUTE) as ingest_time" + \
+            "FROM \"SOURCE_SQL_STREAM_001\"" + \
+            "GROUP BY \"region\", \"state\", FLOOR(\"SOURCE_SQL_STREAM_001\".APPROXIMATE_ARRIVAL_TIME TO MINUTE), FLOOR((\"SOURCE_SQL_STREAM_001\".ROWTIME - TIMESTAMP '1970-01-01 00:00:00') SECOND / 10 TO SECOND);" + \
+            "CREATE OR REPLACE PUMP \"STREAM_PUMP\" AS INSERT INTO \"DESTINATION_SQL_STREAM_BY_REGION\"" + \
+            "SELECT STREAM \"region\", SUM(\"kpi-1\") AS kpi_1_sum, SUM(\"kpi-2\") AS kpi_2_sum, FLOOR(\"SOURCE_SQL_STREAM_001\".APPROXIMATE_ARRIVAL_TIME TO MINUTE) as ingest_time" + \
+            "FROM \"SOURCE_SQL_STREAM_001\"" + \
+            "GROUP BY \"region\", FLOOR(\"SOURCE_SQL_STREAM_001\".APPROXIMATE_ARRIVAL_TIME TO MINUTE), FLOOR((\"SOURCE_SQL_STREAM_001\".ROWTIME - TIMESTAMP '1970-01-01 00:00:00') SECOND / 10 TO SECOND);"
 
         kda_app = aws_kinesisanalytics.CfnApplication(self, "kda_agg",
             inputs=[ip], #kda_inputs,
-            application_code="Example Application Code", 
+            application_code=application_code, 
             application_description="Aggregating data", 
             application_name="DashboardMetricsAggregator"
         )

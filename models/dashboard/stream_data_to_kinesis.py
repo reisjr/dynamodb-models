@@ -35,7 +35,7 @@ FROM "SOURCE_SQL_STREAM_001"
 GROUP BY "example", "region", FLOOR(("SOURCE_SQL_STREAM_001".ROWTIME - TIMESTAMP '1970-01-01 00:00:00') SECOND / 10 TO SECOND);
 '''
 
-EXAMPLES = ["SP", "RJ", "GO", "PA", "PR", "RS", "ES", "MG", "MT", "MS", "TO", "PE"]
+STATES = ["SP", "RJ", "GO", "PA", "PR", "RS", "ES", "MG", "MT", "MS", "TO", "PE"]
 REGIONS = ["NORTH", "NORTHEAST", "SOUTH", "SOUTHEAST", "MIDWEST"]
 
 if __name__ == "__main__":
@@ -47,17 +47,13 @@ if __name__ == "__main__":
         kinesis_records = []
         for i in range(1, 100):
 
-            if i % 20 == 0:
-                print("{} .".format(i))
-                time.sleep(1)
-
             timestamp = datetime.datetime.utcnow()
             part_key = "8.8.8.8"
             data = {
-                "ts" : timestamp.isoformat(),
-                "example": random.choice(EXAMPLES),
+                "event-time" : timestamp.isoformat(),
+                "state": random.choice(STATES),
                 "region": random.choice(REGIONS),
-                "store-id": random.randint(1, 100),
+                "store-id": random.randint(1, 20),
                 "kpi-1": random.randint(1, 100),
                 "kpi-2": random.randint(1, 100),
                 "kpi-3": random.randint(1, 100),
@@ -66,6 +62,12 @@ if __name__ == "__main__":
                 "kpi-6": random.randint(1, 100),
                 "kpi-7": random.randint(1, 100)
             }
+
+            if i % 20 == 0:
+                print("{} .".format(i))
+                print("SAMPLE:\n{}".format(json.dumps(data)))
+                time.sleep(1)
+
             record = { 'PartitionKey': part_key, 'Data': json.dumps(data) }
             kinesis_records.append(record)
 
