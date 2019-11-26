@@ -35,8 +35,13 @@ FROM "SOURCE_SQL_STREAM_001"
 GROUP BY "example", "region", FLOOR(("SOURCE_SQL_STREAM_001".ROWTIME - TIMESTAMP '1970-01-01 00:00:00') SECOND / 10 TO SECOND);
 '''
 
-STATES = ["SP", "RJ", "GO", "PA", "PR", "RS", "ES", "MG", "MT", "MS", "TO", "PE"]
-REGIONS = ["NORTH", "NORTHEAST", "SOUTH", "SOUTHEAST", "MIDWEST"]
+REGIONS = {
+    "NORTH": ["AM", "RR", "PA", "TO", "AC", "RO", "MA", "AP"],
+    "NORTHEAST": ["MA", "BA", "AL", "PE", "RN", "CE", "PB", "SE", "PI"],
+    "SOUTH": ["RS", "PR", "SC"],
+    "SOUTHEAST": ["MG", "SP", "RJ", "ES"],
+    "MIDWEST": [ "MT", "GO", "MS"]
+}
 
 if __name__ == "__main__":
     kin_cli = boto3.client("kinesis")
@@ -49,11 +54,15 @@ if __name__ == "__main__":
 
             timestamp = datetime.datetime.utcnow()
             part_key = "8.8.8.8"
+
+            region = random.choice(list(REGIONS.keys())) 
+            state = random.choice(REGIONS[region])
+            
             data = {
                 "event-time" : timestamp.isoformat(),
-                "state": random.choice(STATES),
-                "region": random.choice(REGIONS),
-                "store-id": random.randint(1, 20),
+                "state": state,
+                "region": region,
+                "store-id": random.randint(1, 10),
                 "kpi-1": random.randint(1, 100),
                 "kpi-2": random.randint(1, 100),
                 "kpi-3": random.randint(1, 100),
@@ -64,9 +73,10 @@ if __name__ == "__main__":
             }
 
             if i % 20 == 0:
-                print("{} .".format(i))
+                wait = random.uniform(0, 20)
+                print("{} - {} - wait: {}".format(j, i, wait))
                 print("SAMPLE:\n{}".format(json.dumps(data)))
-                time.sleep(1)
+                time.sleep(wait)
 
             record = { 'PartitionKey': part_key, 'Data': json.dumps(data) }
             kinesis_records.append(record)

@@ -25,8 +25,12 @@ class DynamoDBModelsStack(core.Stack):
             shard_count=1, 
             stream_name="kds_dashboard_input_stream")
         
+        kds_output_stream = aws_kinesis.Stream(self, "kds_dashboard_output_stream",
+            shard_count=1, 
+            stream_name="kds_dashboard_output_stream")
+
         # Creating a ingest bucket for this stack
-        ingest_bucket = aws_s3.Bucket(self,'dreis-dboard-ingest-bucket')
+        ingest_bucket = aws_s3.Bucket(self,'dreis_dboard_ingest_bucket')
 
         kfh_service_role = aws_iam.Role(self, 'KFH_Dashboard_Role',
             assumed_by=aws_iam.ServicePrincipal('firehose.amazonaws.com')
@@ -40,15 +44,22 @@ class DynamoDBModelsStack(core.Stack):
         kfh_service_role.add_to_policy(kfh_policy_stmt)
 
         #Creating firehose for this stack
+        kfh_source = aws_kinesisfirehose.CfnDeliveryStream.KinesisStreamSourceConfigurationProperty(
+            kinesis_stream_arn=kds_input_stream.stream_arn,
+            role_arn=kfh_service_role.role_arn
+        )
+
         kfh_datalake = aws_kinesisfirehose.CfnDeliveryStream(self, "kfh_datalake",
-            s3_destination_configuration= aws_kinesisfirehose.CfnDeliveryStream.S3DestinationConfigurationProperty(
+            s3_destination_configuration=aws_kinesisfirehose.CfnDeliveryStream.S3DestinationConfigurationProperty(
                 bucket_arn=ingest_bucket.bucket_arn,
                 buffering_hints=aws_kinesisfirehose.CfnDeliveryStream.BufferingHintsProperty(
                     interval_in_seconds=60,
                     size_in_m_bs=5),
                 compression_format="UNCOMPRESSED",
                 role_arn=kfh_service_role.role_arn
-                )
+                ),
+            delivery_stream_type="KinesisStreamAsSource",
+            kinesis_stream_source_configuration=kfh_source
         )
 
         kda_service_role = aws_iam.Role(self, 'KDA_Dashboard_Role',
@@ -62,62 +73,7 @@ class DynamoDBModelsStack(core.Stack):
 
         kda_service_role.add_to_policy(kda_policy_stmt)
 
-        #kda_app = aws_kinesisanalytics.CfnApplicationV2(self, "kda_agg",
-        #    runtime_environment="SQL-1_0", 
-        #    service_execution_role=kda_service_role.role_arn, 
-        #    application_configuration=None,
-        #    application_description="Sample aggregation application", 
-        #    application_name="DashboardMetricsAggregator"
-        #)
-
-        # kda_record_format = aws_kinesisanalytics.RecordFormatProperty(
-        #     record_format_type="CSV"
-        # )
-
-        # kda_schema = aws_kinesisanalytics.InputSchemaProperty(
-        #     record_columns= [ ],
-        #     #"RecordEncoding" : String,
-        #     record_format=kda_record_format
-        # )
-
-            #     InputSchema:
-            # RecordColumns:
-            #  - Name: "example"
-            #    SqlType: "VARCHAR(16)"
-            #    Mapping: "$.example"
-            # RecordFormat:
-            #   RecordFormatType: "JSON"
-            #   MappingParameters:
-            #     JSONMappingParameters:
-            #       RecordRowPath: "$"
-
-        # kda_inputs = aws_kinesisanalytics.InputProperty(
-        #     name_prefix="bla",
-        #     kinesis_streams_input=kds_input_stream,
-        #     input_schema=kda_schema,
-        # )
-
-        input = {
-            "NamePrefix": "exampleNamePrefix",
-            "InputSchema": {
-             "RecordColumns": {
-                "Name": "example",
-                "SqlType": "VARCHAR(16)",
-                "Mapping": "$.example"
-             },
-            "RecordFormat": {
-              "RecordFormatType": "JSON",
-              "MappingParameters": {
-                "JSONMappingParameters": {
-                  "RecordRowPath": "$"
-                }
-              }
-            }
-            }
-        }
-
-        #You chose CSV as the record format, but you haven't specified the Delimited MappingParameters. Please provide the Column and Row Delimiters via Delimited Mapping Parameters (
-
+        # KA doesn't like - (dash) in names
         col1 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
             name="state",
             sql_type="VARCHAR(2)",
@@ -125,43 +81,55 @@ class DynamoDBModelsStack(core.Stack):
         )
 
         col2 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="event-time",
-            sql_type="VARCHAR(32)",
+            name="event_time",
+            sql_type="TIMESTAMP",
             mapping="$.event-time"
         )
         
         col3 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="region",
+            name="region",  
             sql_type="VARCHAR(12)",
             mapping="$.region"
         )
 
         col4 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="store-id",
+            name="store_id",
             sql_type="INTEGER",
             mapping="$.store-id"
         )
 
         col5 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="kpi-1",
+            name="kpi_1",
             sql_type="INTEGER",
             mapping="$.kpi-1"
         )
         
         col6 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="kpi-2",
+            name="kpi_2",
             sql_type="INTEGER",
             mapping="$.kpi-2"
         )
 
         col7 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
-            name="kpi-3",
+            name="kpi_3",
             sql_type="INTEGER",
             mapping="$.kpi-3"
         )
 
+        col8 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="kpi_4",
+            sql_type="INTEGER",
+            mapping="$.kpi-4"
+        )
+
+        col9 = aws_kinesisanalytics.CfnApplication.RecordColumnProperty(
+            name="kpi_5",
+            sql_type="INTEGER",
+            mapping="$.kpi-5"
+        )
+
         schema = aws_kinesisanalytics.CfnApplication.InputSchemaProperty(
-            record_columns=[col2, col1, col3, col4, col5, col6, col7],
+            record_columns=[col2, col1, col3, col4, col5, col6, col7, col8, col9],
             record_encoding="UTF-8",
             record_format=aws_kinesisanalytics.CfnApplication.RecordFormatProperty(
                 record_format_type="JSON",
@@ -207,10 +175,26 @@ class DynamoDBModelsStack(core.Stack):
             application_name="DashboardMetricsAggregator"
         )
 
-        kds_output_stream = aws_kinesis.Stream(self, "kds_dashboard_output_stream",
-            shard_count=1, 
-            stream_name="kds_dashboard_output_stream")
-        
+        kda_output_prop = aws_kinesisanalytics.CfnApplicationOutput.KinesisStreamsOutputProperty(
+            resource_arn=kds_output_stream.stream_arn,
+            role_arn=kda_service_role.role_arn
+        )
+
+        kda_dest_schema = aws_kinesisanalytics.CfnApplicationOutput.DestinationSchemaProperty(
+            record_format_type="JSON"
+        )
+
+        kda_output_prop = aws_kinesisanalytics.CfnApplicationOutput.OutputProperty(
+            destination_schema=kda_dest_schema,
+            kinesis_streams_output=kda_output_prop,
+            name="DESTINATION_SQL_STREAM_BY_STORE"
+        )
+
+        kda_app_output_prop = aws_kinesisanalytics.CfnApplicationOutput(self, "kda_agg_output",
+            application_name="DashboardMetricsAggregator",
+            output=kda_output_prop
+        )
+
         lambda_agg_function = aws_lambda.Function(self, "AggDataLambda",
             runtime=aws_lambda.Runtime.PYTHON_3_7,
             handler="lambda_function.lambda_handler",
@@ -231,7 +215,7 @@ class DynamoDBModelsStack(core.Stack):
 
         kes = aws_lambda_event_sources.KinesisEventSource(kds_output_stream,
             starting_position=aws_lambda.StartingPosition.TRIM_HORIZON,
-            batch_size=100, 
+            batch_size=50, 
             #max_batching_window=100
         )
 
@@ -241,5 +225,23 @@ class DynamoDBModelsStack(core.Stack):
             self, "TableName_Dashboard",
             description="Table name for Dashboard",
             value=table.table_name
+        )
+
+        core.CfnOutput(
+            self, "BucketName_Dashboard",
+            description="Bucket name",
+            value=ingest_bucket.bucket_arn
+        )
+
+        core.CfnOutput(
+            self, "KinesisInputStream_Dashboard",
+            description="Kinesis input for Dashboard",
+            value=kds_input_stream.stream_name
+        )
+
+        core.CfnOutput(
+            self, "KinesisOutputStream_Dashboard",
+            description="Kinesis output for Dashboard",
+            value=kds_output_stream.stream_name
         )
         
