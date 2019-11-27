@@ -184,15 +184,37 @@ class DynamoDBModelsStack(core.Stack):
             record_format_type="JSON"
         )
 
-        kda_output_prop = aws_kinesisanalytics.CfnApplicationOutput.OutputProperty(
+        kda_output_prop_by_store = aws_kinesisanalytics.CfnApplicationOutput.OutputProperty(
             destination_schema=kda_dest_schema,
             kinesis_streams_output=kda_output_prop,
             name="DESTINATION_SQL_STREAM_BY_STORE"
         )
 
-        kda_app_output_prop = aws_kinesisanalytics.CfnApplicationOutput(self, "kda_agg_output",
+        kda_output_prop_by_state = aws_kinesisanalytics.CfnApplicationOutput.OutputProperty(
+            destination_schema=kda_dest_schema,
+            kinesis_streams_output=kda_output_prop,
+            name="DESTINATION_SQL_STREAM_BY_STATE"
+        )
+
+        kda_output_prop_by_region = aws_kinesisanalytics.CfnApplicationOutput.OutputProperty(
+            destination_schema=kda_dest_schema,
+            kinesis_streams_output=kda_output_prop,
+            name="DESTINATION_SQL_STREAM_BY_REGION"
+        )
+
+        kda_app_output_prop = aws_kinesisanalytics.CfnApplicationOutput(self, "kda_agg_output_store",
             application_name="DashboardMetricsAggregator",
-            output=kda_output_prop
+            output=kda_output_prop_by_store
+        )
+
+        kda_app_output_prop = aws_kinesisanalytics.CfnApplicationOutput(self, "kda_agg_output_state",
+            application_name="DashboardMetricsAggregator",
+            output=kda_output_prop_by_state
+        )
+
+        kda_app_output_prop = aws_kinesisanalytics.CfnApplicationOutput(self, "kda_agg_output_region",
+            application_name="DashboardMetricsAggregator",
+            output=kda_output_prop_by_region
         )
 
         lambda_agg_function = aws_lambda.Function(self, "AggDataLambda",

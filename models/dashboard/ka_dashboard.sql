@@ -1,5 +1,5 @@
 CREATE OR REPLACE STREAM "DESTINATION_SQL_STREAM_BY_STORE" (
-    "type" VARCHAR(14), "region" VARCHAR(10), 
+    "type" VARCHAR(20), "region" VARCHAR(10), 
     "state" VARCHAR(2), "store-id" INTEGER, 
     kpi_1_sum INTEGER, kpi_2_sum INTEGER, 
     kpi_3_sum INTEGER, kpi_4_sum INTEGER, 
