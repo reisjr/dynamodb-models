@@ -158,7 +158,7 @@ def query_data(region, state, time="PT10M"):
         },
         Limit=200,
         ConsistentRead=False,
-        ScanIndexForward=True,
+        ScanIndexForward=False,
         ReturnConsumedCapacity="TOTAL"
     )
 
@@ -183,6 +183,8 @@ def query_data(region, state, time="PT10M"):
             cnt += 1
     else:
         print("No data found!")
+
+    print("Records {}".format(cnt))
 
     return kpi_x, kpis_y
 
