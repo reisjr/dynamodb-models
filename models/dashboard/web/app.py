@@ -43,6 +43,36 @@ REGIONS = {
 
 app.layout = html.Div(
     children=[
+        html.H3("Summary"),
+        html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    [html.H6(id="kpi1_sum_text"), html.P("KPI 1")],
+                                    id="kpi1_sum",
+                                    className="mini_container",
+                                ),
+                                html.Div(
+                                    [html.H6(id="kpi2_sum_text"), html.P("KPI 2")],
+                                    id="kpi2_sum",
+                                    className="mini_container",
+                                ),
+                                html.Div(
+                                    [html.H6(id="kpi3_sum_text"), html.P("KPI 3")],
+                                    id="kpi3_sum",
+                                    className="mini_container",
+                                ),
+                                html.Div(
+                                    [html.H6(id="kpi4_sum_text"), html.P("KPI 4")],
+                                    id="kpi4_sum",
+                                    className="mini_container",
+                                ),
+                            ],
+                            id="info-container",
+                            className="row container-display",
+                        )
+                    ]),
         html.H3("Sample KPI Dashboard"),
                 html.Div([
             dcc.Dropdown(
@@ -223,16 +253,43 @@ def get_line_chart(region, state=None, store=None, time="Minute"):
         }
     }
 
-    return d
+    kpi1_sum = 0
+
+    for k in kpis_y["kpi1"]:
+        kpi1_sum += k
+
+    kpi2_sum = 0
+
+    for k in kpis_y["kpi2"]:
+        kpi2_sum += k
+
+    kpi3_sum = 0
+
+    for k in kpis_y["kpi3"]:
+        kpi3_sum += k
+
+    kpi4_sum = 0
+
+    for k in kpis_y["kpi4"]:
+        kpi4_sum += k
+
+    return d, kpi1_sum, kpi2_sum, kpi3_sum, kpi4_sum
 
 
 @app.callback(
-    Output("kpi_1", "figure"), 
+    [Output("kpi_1", "figure"), 
+    Output("kpi1_sum_text", "children"),
+    Output("kpi2_sum_text", "children"),
+    Output("kpi3_sum_text", "children"),
+    Output("kpi4_sum_text", "children")], 
     [Input("crossfilter-xaxis-region", "value"), 
     Input("crossfilter-xaxis-state", "value"),
     Input("crossfilter-xaxis-time", "value")])
 def input_triggers_spinner_kpi1(value, value_state, time):
-    return get_line_chart(value, value_state, time=time)
+
+    chart, kpi1_sum, kpi2_sum, kpi3_sum, kpi4_sum = get_line_chart(value, value_state, time=time)
+    
+    return chart, '{:,}'.format(kpi1_sum), '{:,}'.format(kpi2_sum), '{:,}'.format(kpi3_sum), '{:,}'.format(kpi4_sum)
 
 
 @app.callback(
@@ -246,6 +303,28 @@ def set_cities_options(selected_region):
 #def input_triggers_spinner_kpi2(value, value_state):
 #    return get_line_chart(value, value_state)
 
+# Selectors -> well text
+# @app.callback(
+#     Output("well_text", "children"),
+#     [
+#         Input("crossfilter-xaxis-region", "value")
+#     ],
+# )
+# def update_well_text(well_statuses): #, well_types, year_slider):
+
+#     #dff = filter_dataframe(df, well_statuses, well_types, year_slider)
+#     return "10"
+
+
+def filter_dataframe(df, well_statuses, well_types, year_slider):
+    dff = df[
+        df["Well_Status"].isin(well_statuses)
+        & df["Well_Type"].isin(well_types)
+        & (df["Date_Well_Completed"] > dt.datetime(year_slider[0], 1, 1))
+        & (df["Date_Well_Completed"] < dt.datetime(year_slider[1], 1, 1))
+    ]
+    return dff
+
 
 if __name__ == "__main__":
-    app.run_server(debug=False)
+    app.run_server(debug=True)

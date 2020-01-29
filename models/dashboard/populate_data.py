@@ -13,8 +13,21 @@ from concurrent.futures import ThreadPoolExecutor
 LOG = logging.getLogger()
 LOG.setLevel(logging.INFO)
 TABLE_NAME = os.getenv('TABLE_NAME', 'DEFAULT_NAME')
+PAGE_SIZE = 100
 
-COMPANY = ["hotmail.com", "gmail.com", "aol.com", "mail.com" , "mail.kz", "yahoo.com"]
+# https://en.wikipedia.org/wiki/ISO_8601
+SPAN_PT10M = "PT10M"
+SPAN_PT1M = "PT1M"
+SPAN_PT1H = "PT1H"
+
+REGIONS = {
+    "NORTH": ["AM", "RR", "PA", "TO", "AC", "RO", "MA", "AP"],
+    "NORTHEAST": ["MA", "BA", "AL", "PE", "RN", "CE", "PB", "SE", "PI"],
+    "SOUTH": ["RS", "PR", "SC"],
+    "SOUTHEAST": ["MG", "SP", "RJ", "ES"],
+    "MIDWEST": [ "MT", "GO", "MS"]
+}
+
 letters = ascii_letters[:12]
 
 # Helper class to convert a DynamoDB item to JSON.
@@ -45,28 +58,76 @@ class DashboardModel:
         self._table = self._ddb_res.Table(table_name)
 
 
-    def query_company_by_minute(self, company_id):
+    def query_region_by_period(self, region, period=SPAN_PT1M, newer_than=None):
+        records = {}
+        records_parsed = 0
+        records_returned = 0 
+
         q = self._table.query(
             KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
             ExpressionAttributeValues={
-                ":pk": "{}".format(company_id),
-                ":sk": "m#"
+                ":pk": "{}".format(region),
+                ":sk": "{}#".format(period)
             },
             ConsistentRead=False,
             ScanIndexForward=True,
+            Limit=PAGE_SIZE,
             ReturnConsumedCapacity="TOTAL"
         )
-
+        
         print(q["ConsumedCapacity"])
+        print(q)
+        finished = False
+        records_parsed += len(q["Items"])
 
-        return q
+        for item in q["Items"]:
+            ingest_time = datetime.datetime.strptime(item["IngestTime"], '%Y-%m-%d %H:%M:%S.%f')
+            if ingest_time >= newer_than:
+                records[item["IngestTime"]] = item                
+                records_returned += 1
+            else:
+                finished = True
+        
+        while not finished:
+            q = self._table.query(
+                KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
+                ExpressionAttributeValues={
+                    ":pk": "{}".format(region),
+                    ":sk": "{}#".format(period)
+                },
+                ConsistentRead=False,
+                ScanIndexForward=True,
+                ExclusiveStartKey=q["LastEvaluatedKey"],
+                Limit=PAGE_SIZE,
+                ReturnConsumedCapacity="TOTAL"
+            )
+            
+            print("Consumed: {} LEN: {}".format(q["ConsumedCapacity"], len(q["Items"])))
+            
+            records_parsed += len(q["Items"])
+
+            for item in q["Items"]:
+                ingest_time = datetime.datetime.strptime(item["IngestTime"], '%Y-%m-%d %H:%M:%S.%f')
+                if ingest_time >= newer_than:
+                    records[item["IngestTime"]] = item                
+                    records_returned += 1
+                else:
+                    finished = True
+                if "LastEvaluatedKey" not in q:
+                    finished = True
+            else:
+                finished = True
+
+        print("RECORDS: {} / {}".format(records_parsed, len(records)))
+
+        return records
 
 
-    def query_company_by_minute_range(self, company_id, init, end):
+    def query_company_by_minute_range(self, kpi_1, init, end):
         q = self._table.query(
             KeyConditionExpression="Pk = :pk AND Sk BETWEEN :init AND :end",
             ExpressionAttributeValues={
-                ":pk": "{}".format(company_id),
+                ":pk": "{}".format(kpi_1),
                 ":init": "SLOT#{}".format(init),
                 ":end": "SLOT#{}".format(end)
             },
@@ -79,12 +140,31 @@ class DashboardModel:
 
         return q
 
+    def aggregate_by_day(self, records):
+        agg = {}
 
-    def query_company_by_day(self, company_id):
+        for k in records.keys():
+            ingest_time = datetime.datetime.strptime(k, '%Y-%m-%d %H:%M:%S.%f')
+            day = ingest_time.strftime("%Y-%m-%d")
+            v = {}
+            v = agg.get(day, {})
+            
+            for kpi in records.get(k).keys():
+                #print("KPI {} K: {}".format(kpi, records.get(k)))
+                if kpi.startswith("kpi"):
+                    nv = v.get(kpi, 0) + records.get(k)[kpi]
+                    v[kpi] = nv
+            
+            agg[day] = v
+
+        return agg
+
+
+    def query_company_by_day(self, kpi_1):
         q = self._table.query(
             KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
             ExpressionAttributeValues={
-                ":pk": "{}".format(company_id),
+                ":pk": "{}".format(kpi_1),
                 ":sk": "D#"
             },
             ConsistentRead=False,
@@ -96,11 +176,11 @@ class DashboardModel:
 
         return q
 
-    def query_company_by_month(self, company_id):
+    def query_company_by_month(self, kpi_1):
         q = self._table.query(
             KeyConditionExpression="Pk = :pk AND begins_with(Sk, :sk)",
             ExpressionAttributeValues={
-                ":pk": "{}".format(company_id),
+                ":pk": "{}".format(kpi_1),
                 ":sk": "M#"
             },
             ConsistentRead=False,
@@ -116,16 +196,16 @@ class DashboardModel:
         logging.debug(">insert_new_month_record")
 
         self._table.put_item(Item={
-            "Pk": data["company_id"],
-            "Sk": "M#{}".format(data["date"]),
-            "FatLiq": data["fat_liquido"],
-            "QtdVendas": data["qtd_vendas"],
-            "TicketMedio": data["tkt_medio"],
-            "FatBruto": data["fat_bruto"],
-            "Desconto": data["desconto"],
-            "Itens": data["itens"],
-            "QtdAtendimentos": data["qtd_atendimentos"],
-            "ValorTotal": data["valor_total"]
+            "Pk": data["kpi_1"],
+            "Sk": "{}#{}".format(SPAN_PT10M, data["date"]),
+            "kpi_1": data["kpi_2"],
+            "kpi_2": data["kpi_3"],
+            "TicketMedio": data["kpi_4"],
+            "FatBruto": data["kpi_5"],
+            "kpi_6": data["kpi_6"],
+            "kpi_7": data["kpi_7"],
+            "QtdAtendimentos": data["kpi_8"],
+            "ValorTotal": data["kpi_9"]
         })
 
 
@@ -133,33 +213,22 @@ class DashboardModel:
         logging.debug(">insert_new_minute_record")
 
         self._table.put_item(Item={
-            "Pk": data["company_id"],
+            "Pk": data["kpi_1"],
             "Sk": "m#{}".format(data["date"]),
-            "FatLiq": data["fat_liquido"],
-            "QtdVendas": data["qtd_vendas"],
-            "TicketMedio": data["tkt_medio"],
-            "FatBruto": data["fat_bruto"],
-            "Desconto": data["desconto"],
-            "Itens": data["itens"],
-            "QtdAtendimentos": data["qtd_atendimentos"],
-            "ValorTotal": data["valor_total"]
+            "kpi_1": data["kpi_2"],
+            "kpi_2": data["kpi_3"],
+            "TicketMedio": data["kpi_4"],
+            "FatBruto": data["kpi_5"],
+            "kpi_6": data["kpi_6"],
+            "kpi_7": data["kpi_7"],
+            "QtdAtendimentos": data["kpi_8"],
+            "ValorTotal": data["kpi_9"]
         })
 
-    def insert_new_day_record(self, data):
-        logging.debug(">insert_new_day_record")
+    def insert_record(self, record):
+        logging.debug(">insert_record")
 
-        self._table.put_item(Item={
-            "Pk": data["company_id"],
-            "Sk": "D#{}".format(data["date"]),
-            "FatLiq": data["fat_liquido"],
-            "QtdVendas": data["qtd_vendas"],
-            "TicketMedio": data["tkt_medio"],
-            "FatBruto": data["fat_bruto"],
-            "Desconto": data["desconto"],
-            "Itens": data["itens"],
-            "QtdAtendimentos": data["qtd_atendimentos"],
-            "ValorTotal": data["valor_total"]
-        })
+        self._table.put_item(Item=record)
 
 #####
 
@@ -204,20 +273,24 @@ def generate_random_data(period="D"):
 
     if period == "D":
         data["date"] = random_date_formatted()
+        data["Sk"] = "{}#{}".format(SPAN_PT1M, data["date"])
     elif period == "M":
         data["date"] = random_month_formatted()
+        data["Sk"] = "{}#{}".format(SPAN_PT10M, data["date"])
     else:
         data["date"] = random_hour_minute_formatted()
+        data["Sk"] = "{}#{}".format(SPAN_PT1M, data["date"])
 
-    data["company_id"] = random.choice(COMPANY)
-    data["fat_liquido"] = random.randint(0, 1000)
-    data["qtd_vendas"] = random.randint(0, 100)
-    data["tkt_medio"] = random.randint(1, 50)
-    data["fat_bruto"] = random.randint(1, 1000)
-    data["desconto"] = random.randint(0, 1000)
-    data["itens"] = random.randint(0, 1000)
-    data["qtd_atendimentos"] = random.randint(0, 1000)
-    data["valor_total"] =random.randint(0, 1000)
+    data["Pk"] = random.choice(list(REGIONS.keys()))
+    data["kpi_1"] = random.randint(0, 1000)
+    data["kpi_2"] = random.randint(0, 1000)
+    data["kpi_3"] = random.randint(0, 100)
+    data["kpi_4"] = random.randint(1, 50)
+    data["kpi_5"] = random.randint(1, 1000)
+    data["kpi_6"] = random.randint(0, 1000)
+    data["kpi_7"] = random.randint(0, 1000)
+    data["kpi_8"] = random.randint(0, 1000)
+    data["kpi_9"] = random.randint(0, 1000)
 
     return data
 
@@ -228,8 +301,8 @@ def load_days(n):
     
     for i in range(1, 100):
         data = generate_random_data()
-        dm.insert_new_day_record(data)
-        #companies.add(data["company_id"])
+        dm.insert_record(data)
+        #companies.add(data["kpi_1"])
         
         if i % 50 == 0:
             logging.info("THREAD {} I {}".format(n, i))
@@ -243,17 +316,63 @@ def load_hour_min(n):
     for i in range(1, 100):
         data = generate_random_data(period="mm")
         dm.insert_new_minute_record(data)
-        #companies.add(data["company_id"])
+        #companies.add(data["kpi_1"])
         
         if i % 50 == 0:
             logging.info("THREAD {} I {}".format(n, i))
 
+
+def test_query():
+    for region in REGIONS:
+        start = time.time()
+        #q = dm.query_company_by_minute(cpy)
+        q = dm.query_region_by_period(region,period=SPAN_PT1M, newer_than=None)
+        
+        kpi_4 = 0
+        kpi_2 = 0
+        kpi_3 = 0
+        kpi_5 = 0
+        recs = 0
+
+        for items in q['Items']:
+            #print(items)
+            kpi_4 += items["kpi_4"]
+            kpi_2 += items["kpi_1"]
+            kpi_3 += items["kpi_2"]
+            kpi_5 += items["kpi_5"]
+            recs += 1
+            #"kpi_6": data["kpi_6"],
+            #"kpi_7": data["kpi_7"],
+            #"QtdAtendimentos": data["kpi_8"],
+            #"ValorTotal": data["kpi_9"]
+
+        #print(q)
+        end = time.time()
+        print(end - start)
+        print("\n####\nCOMPANY {}\nkpi_4 {} FAT_LIQ {} kpi_3 {}\nRECS {}".format(cpy, kpi_4, kpi_2, kpi_3, recs))
+
+
+
 if __name__ == "__main__":
     dm = DashboardModel(table_name=TABLE_NAME)
     
-    print(random_hour_minute_formatted())
+    logging.info(random_hour_minute_formatted())
+    logging.info("{}".format(random.choice([REGIONS.keys()])))
 
-    companies = set()
+    rec = generate_random_data("D")
+    logging.info(rec)
+    dm.insert_record(rec)
+
+    region = random.choice(list(REGIONS.keys()))
+    print("REGION: {}".format(region))
+
+    newer_than = datetime.datetime.strptime("2019-11-01 02:00:00.000", '%Y-%m-%d %H:%M:%S.%f')
+
+    q = dm.query_region_by_period(region, period=SPAN_PT1M, newer_than=newer_than)
+    agg = dm.aggregate_by_day(q)
+    print(agg)
+    
+    #print(q)
 
     # with ThreadPoolExecutor(max_workers=8) as executor:
     #     future = executor.submit(load_days, (1))
@@ -275,33 +394,5 @@ if __name__ == "__main__":
     #     future = executor.submit(load_hour_min, (6))
     #     future = executor.submit(load_hour_min, (7))
     #     future = executor.submit(load_hour_min, (8))
-
-
-    for cpy in COMPANY:
-        start = time.time()
-        #q = dm.query_company_by_minute(cpy)
-        q = dm.query_company_by_minute_range(cpy, "2015-11-01", "2019-11-08")
-        
-        tkt_medio = 0
-        fat_liquido = 0
-        qtd_vendas = 0
-        fat_bruto = 0
-        recs = 0
-
-        for items in q['Items']:
-            #print(items)
-            tkt_medio += items["TicketMedio"]
-            fat_liquido += items["FatLiq"]
-            qtd_vendas += items["QtdVendas"]
-            fat_bruto += items["FatBruto"]
-            recs += 1
-            #"Desconto": data["desconto"],
-            #"Itens": data["itens"],
-            #"QtdAtendimentos": data["qtd_atendimentos"],
-            #"ValorTotal": data["valor_total"]
-
-        #print(q)
-        end = time.time()
-        print(end - start)
-        print("\n####\nCOMPANY {}\nTKT_MEDIO {} FAT_LIQ {} QTD_VENDAS {}\nRECS {}".format(cpy, tkt_medio, fat_liquido, qtd_vendas, recs))
-
+    
+    #test_query()
